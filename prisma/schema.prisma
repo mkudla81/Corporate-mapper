@@ -1,0 +1,328 @@
+// Corporate Mapper data model.
+//
+// The ancestry.com analogy, translated to B2B sales:
+//   family tree        -> OrgMap (one collaborative map per prospect account)
+//   person page        -> Person + Position(s)
+//   family links       -> Edge (REPORTS_TO, plus influence-style relationships)
+//   facts + citations  -> Fact -> Source (every fact can carry provenance)
+//   records/media      -> Artifact (files, links, notes attached to anything)
+//   leaf hints         -> Hint (suggestions produced by CRM syncs)
+//   tree changes       -> Activity (full contribution history)
+//   record collections -> CrmConnection + ExternalLink (SFDC / HubSpot linkage)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  // SQLite for local dev. Production: switch provider to "postgresql" —
+  // the schema intentionally avoids SQLite-only features.
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Collaboration: workspaces, users, membership
+// ---------------------------------------------------------------------------
+
+model Workspace {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  members     Membership[]
+  orgMaps     OrgMap[]
+  connections CrmConnection[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  createdAt DateTime @default(now())
+
+  memberships      Membership[]
+  activities       Activity[]
+  artifacts        Artifact[]
+  facts            Fact[]
+  linkedinContacts LinkedInContact[]
+}
+
+model Membership {
+  id          String @id @default(cuid())
+  role        String @default("member") // owner | admin | member | viewer
+  userId      String
+  workspaceId String
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+}
+
+// ---------------------------------------------------------------------------
+// The "tree": one OrgMap per prospect account
+// ---------------------------------------------------------------------------
+
+model OrgMap {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  workspaceId String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  companies Company[]
+  people    Person[]
+  edges     Edge[]
+  hints     Hint[]
+  activity  Activity[]
+}
+
+// A company / org unit inside a map. Self-relation models subsidiaries,
+// divisions and business units.
+model Company {
+  id       String  @id @default(cuid())
+  orgMapId String
+  name     String
+  domain   String?
+  industry String?
+  parentId String?
+
+  orgMap    OrgMap    @relation(fields: [orgMapId], references: [id], onDelete: Cascade)
+  parent    Company?  @relation("CompanyTree", fields: [parentId], references: [id])
+  children  Company[] @relation("CompanyTree")
+  positions Position[]
+  facts     Fact[]
+  artifacts Artifact[]
+  links     ExternalLink[]
+}
+
+// ---------------------------------------------------------------------------
+// People — the "person pages"
+// ---------------------------------------------------------------------------
+
+model Person {
+  id        String   @id @default(cuid())
+  orgMapId  String
+  firstName String
+  lastName  String
+  email     String?
+  phone     String?
+  linkedin  String?
+  photoUrl  String?
+  notes     String?
+  // Sales-specific read on the person: champion | influencer | neutral |
+  // blocker | economic_buyer | technical_buyer | end_user | unknown
+  disposition String @default("unknown")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  orgMap           OrgMap     @relation(fields: [orgMapId], references: [id], onDelete: Cascade)
+  positions        Position[]
+  facts            Fact[]
+  artifacts        Artifact[]
+  links            ExternalLink[]
+  edgesFrom        Edge[]     @relation("EdgeFrom")
+  edgesTo          Edge[]     @relation("EdgeTo")
+  linkedinContacts LinkedInContact[]
+}
+
+// A person's role at a company over time — like life events on an ancestry
+// profile. current=false rows preserve role history when people move.
+model Position {
+  id         String    @id @default(cuid())
+  personId   String
+  companyId  String
+  title      String
+  department String?
+  seniority  String?   // c_level | vp | director | manager | ic
+  startDate  DateTime?
+  endDate    DateTime?
+  current    Boolean   @default(true)
+
+  person  Person  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+}
+
+// Typed relationship between two people. REPORTS_TO edges form the org chart;
+// the other types capture the informal influence map that wins deals.
+model Edge {
+  id       String  @id @default(cuid())
+  orgMapId String
+  fromId   String
+  toId     String
+  // REPORTS_TO | DOTTED_LINE | INFLUENCES | ALLY_OF | CONFLICT_WITH |
+  // FORMER_COLLEAGUE | MENTOR_OF
+  type     String
+  strength Int     @default(3) // 1 (weak) .. 5 (strong)
+  notes    String?
+
+  orgMap OrgMap @relation(fields: [orgMapId], references: [id], onDelete: Cascade)
+  from   Person @relation("EdgeFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  to     Person @relation("EdgeTo", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@unique([fromId, toId, type])
+}
+
+// ---------------------------------------------------------------------------
+// Knowledge: facts with citations, sources, artifacts
+// ---------------------------------------------------------------------------
+
+// A discrete, citable piece of intel about a person or company.
+// e.g. label="Budget authority" value="Owns $2M infra budget", sourced to a
+// discovery-call note. Mirrors ancestry's fact + source-citation model.
+model Fact {
+  id         String   @id @default(cuid())
+  label      String
+  value      String
+  confidence String   @default("unverified") // verified | likely | unverified
+  personId   String?
+  companyId  String?
+  sourceId   String?
+  createdBy  String?
+  createdAt  DateTime @default(now())
+
+  person  Person?  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  source  Source?  @relation(fields: [sourceId], references: [id])
+  author  User?    @relation(fields: [createdBy], references: [id])
+}
+
+// Where a piece of knowledge came from — the citation.
+model Source {
+  id        String   @id @default(cuid())
+  kind      String   // salesforce | hubspot | linkedin | call_note | email | web | manual
+  title     String
+  url       String?
+  detail    String?
+  createdAt DateTime @default(now())
+
+  facts Fact[]
+}
+
+// Files, links and notes attached to a person, company or map — the
+// "media gallery" on an ancestry profile.
+model Artifact {
+  id        String   @id @default(cuid())
+  kind      String   // file | link | note
+  title     String
+  url       String?  // external link, or /api/files/{storedName} for uploads
+  storedName String? // filename inside STORAGE_DIR for kind=file
+  mimeType  String?
+  sizeBytes Int?
+  body      String?  // note text for kind=note
+  personId  String?
+  companyId String?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  person  Person?  @relation(fields: [personId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  author  User?    @relation(fields: [createdBy], references: [id])
+}
+
+// ---------------------------------------------------------------------------
+// Hints — ancestry's shaking leaf, fed by CRM syncs
+// ---------------------------------------------------------------------------
+
+model Hint {
+  id        String   @id @default(cuid())
+  orgMapId  String
+  provider  String   // salesforce | hubspot
+  kind      String   // new_person | update_person | new_company | update_company
+  status    String   @default("pending") // pending | accepted | dismissed
+  // JSON payload of the proposed entity/changes, including external IDs.
+  payload   String
+  createdAt DateTime @default(now())
+  resolvedAt DateTime?
+
+  orgMap OrgMap @relation(fields: [orgMapId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------------------
+// CRM integration: connections + external ID linkage
+// ---------------------------------------------------------------------------
+
+model CrmConnection {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  provider     String   // salesforce | hubspot
+  label        String
+  // OAuth tokens or private-app token. In production encrypt at rest / use a
+  // secrets manager; kept simple here.
+  accessToken  String
+  refreshToken String?
+  instanceUrl  String?  // SFDC instance URL
+  expiresAt    DateTime?
+  createdAt    DateTime @default(now())
+  lastSyncAt   DateTime?
+
+  workspace Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  links     ExternalLink[]
+}
+
+// Maps an internal Person/Company to its record in an external CRM, so syncs
+// are idempotent and bidirectional updates know where to land.
+model ExternalLink {
+  id           String   @id @default(cuid())
+  connectionId String
+  provider     String   // salesforce | hubspot
+  externalType String   // Contact | Account | contact | company
+  externalId   String
+  personId     String?
+  companyId    String?
+  lastSyncedAt DateTime @default(now())
+
+  connection CrmConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  person     Person?       @relation(fields: [personId], references: [id], onDelete: Cascade)
+  company    Company?      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([connectionId, externalType, externalId])
+}
+
+// ---------------------------------------------------------------------------
+// LinkedIn — imported 1st-degree connections of a user
+// ---------------------------------------------------------------------------
+
+// One row per connection from a user's LinkedIn data export
+// (Connections.csv). These are the user's 1st-degree network; matching a
+// contact to a Person in a map makes that person 1st-degree, and degrees for
+// everyone else are computed by walking edges + shared work history.
+model LinkedInContact {
+  id          String    @id @default(cuid())
+  userId      String
+  firstName   String
+  lastName    String
+  profileUrl  String?
+  email       String?
+  company     String?
+  position    String?
+  connectedOn DateTime?
+  importedAt  DateTime  @default(now())
+  personId    String? // matched Person in an org map, if any
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  person Person? @relation(fields: [personId], references: [id], onDelete: SetNull)
+
+  @@unique([userId, profileUrl])
+}
+
+// ---------------------------------------------------------------------------
+// Activity — the contribution history ("tree changes")
+// ---------------------------------------------------------------------------
+
+model Activity {
+  id        String   @id @default(cuid())
+  orgMapId  String
+  userId    String?
+  verb      String   // created | updated | deleted | linked | synced | accepted_hint | uploaded
+  entity    String   // person | company | edge | fact | artifact | hint | map | connection
+  entityId  String?
+  summary   String
+  createdAt DateTime @default(now())
+
+  orgMap OrgMap @relation(fields: [orgMapId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id])
+}
