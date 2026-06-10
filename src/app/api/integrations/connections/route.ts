@@ -1,23 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { getCurrentWorkspaceId } from "@/lib/auth";
+import { requireApiUser, currentWorkspaceId } from "@/lib/auth";
+import { withApiErrors } from "@/lib/authz";
+import { encryptSecret } from "@/lib/secrets";
 
 export async function GET() {
-  const workspaceId = await getCurrentWorkspaceId();
-  const connections = await db.crmConnection.findMany({
-    where: { workspaceId },
-    select: {
-      id: true,
-      provider: true,
-      label: true,
-      instanceUrl: true,
-      createdAt: true,
-      lastSyncAt: true,
-      // tokens intentionally excluded from API responses
-    },
+  return withApiErrors(async () => {
+    const user = await requireApiUser();
+    const connections = await db.crmConnection.findMany({
+      where: { workspaceId: currentWorkspaceId(user) },
+      select: {
+        id: true,
+        provider: true,
+        label: true,
+        instanceUrl: true,
+        createdAt: true,
+        lastSyncAt: true,
+        // tokens intentionally excluded from API responses
+      },
+    });
+    return NextResponse.json(connections);
   });
-  return NextResponse.json(connections);
 }
 
 // Manual connection creation — the quick path for HubSpot private-app tokens
@@ -31,17 +35,24 @@ const createSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const body = createSchema.parse(await req.json());
-  const workspaceId = await getCurrentWorkspaceId();
-  if (body.provider === "salesforce" && !body.instanceUrl) {
-    return NextResponse.json(
-      { error: "instanceUrl is required for Salesforce connections" },
-      { status: 400 }
-    );
-  }
-  const conn = await db.crmConnection.create({
-    data: { ...body, workspaceId },
-    select: { id: true, provider: true, label: true, createdAt: true },
+  return withApiErrors(async () => {
+    const body = createSchema.parse(await req.json());
+    const user = await requireApiUser();
+    if (body.provider === "salesforce" && !body.instanceUrl) {
+      return NextResponse.json(
+        { error: "instanceUrl is required for Salesforce connections" },
+        { status: 400 }
+      );
+    }
+    const conn = await db.crmConnection.create({
+      data: {
+        ...body,
+        accessToken: encryptSecret(body.accessToken),
+        refreshToken: body.refreshToken ? encryptSecret(body.refreshToken) : undefined,
+        workspaceId: currentWorkspaceId(user),
+      },
+      select: { id: true, provider: true, label: true, createdAt: true },
+    });
+    return NextResponse.json(conn, { status: 201 });
   });
-  return NextResponse.json(conn, { status: 201 });
 }

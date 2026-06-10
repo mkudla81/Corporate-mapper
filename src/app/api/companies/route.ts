@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { requireApiUser } from "@/lib/auth";
+import { withApiErrors, assertMapAccess, assertCompanyAccess } from "@/lib/authz";
 import { logActivity } from "@/lib/activity";
 
 const createSchema = z.object({
@@ -13,16 +14,20 @@ const createSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const body = createSchema.parse(await req.json());
-  const user = await getCurrentUser();
-  const company = await db.company.create({ data: body });
-  await logActivity({
-    orgMapId: body.orgMapId,
-    userId: user.id,
-    verb: "created",
-    entity: "company",
-    entityId: company.id,
-    summary: `Added company "${company.name}"`,
+  return withApiErrors(async () => {
+    const body = createSchema.parse(await req.json());
+    const user = await requireApiUser();
+    await assertMapAccess(user, body.orgMapId);
+    if (body.parentId) await assertCompanyAccess(user, body.parentId);
+    const company = await db.company.create({ data: body });
+    await logActivity({
+      orgMapId: body.orgMapId,
+      userId: user.id,
+      verb: "created",
+      entity: "company",
+      entityId: company.id,
+      summary: `Added company "${company.name}"`,
+    });
+    return NextResponse.json(company, { status: 201 });
   });
-  return NextResponse.json(company, { status: 201 });
 }

@@ -1,13 +1,14 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { getCurrentUser, getCurrentWorkspaceId } from "@/lib/auth";
+import { requireUser, currentWorkspaceId, workspaceIds } from "@/lib/auth";
 import { computeDegrees } from "@/lib/network";
 import { MapWorkspace } from "@/components/MapWorkspace";
 
 export const dynamic = "force-dynamic";
 
 export default async function MapPage({ params }: { params: { id: string } }) {
+  const user = await requireUser();
   const map = await db.orgMap.findUnique({
     where: { id: params.id },
     include: {
@@ -19,10 +20,9 @@ export default async function MapPage({ params }: { params: { id: string } }) {
       hints: { where: { status: "pending" }, orderBy: { createdAt: "desc" } },
     },
   });
-  if (!map) notFound();
+  if (!map || !workspaceIds(user).includes(map.workspaceId)) notFound();
 
-  const user = await getCurrentUser();
-  const workspaceId = await getCurrentWorkspaceId();
+  const workspaceId = currentWorkspaceId(user);
   const connections = await db.crmConnection.findMany({
     where: { workspaceId },
     select: { id: true, provider: true, label: true },

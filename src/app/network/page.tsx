@@ -1,12 +1,12 @@
-import { getCurrentUser, getCurrentWorkspaceId } from "@/lib/auth";
+import { requireUser, currentWorkspaceId } from "@/lib/auth";
 import { buildOrgNetwork } from "@/lib/network";
 import { OrgNetwork } from "@/components/OrgNetwork";
 
 export const dynamic = "force-dynamic";
 
 export default async function NetworkPage() {
-  const user = await getCurrentUser();
-  const workspaceId = await getCurrentWorkspaceId();
+  const user = await requireUser();
+  const workspaceId = currentWorkspaceId(user);
   const { nodes, bridges } = await buildOrgNetwork(user.id, workspaceId);
 
   return (

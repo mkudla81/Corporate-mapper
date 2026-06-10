@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getCurrentUser } from "@/lib/auth";
+import { requireApiUser } from "@/lib/auth";
+import { withApiErrors, assertConnectionAccess, assertMapAccess } from "@/lib/authz";
 import { runSync } from "@/lib/crm/sync";
 
 const schema = z.object({
@@ -10,15 +11,19 @@ const schema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const body = schema.parse(await req.json());
-  const user = await getCurrentUser();
-  try {
-    const result = await runSync({ ...body, userId: user.id });
-    return NextResponse.json(result);
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : "Sync failed" },
-      { status: 502 }
-    );
-  }
+  return withApiErrors(async () => {
+    const body = schema.parse(await req.json());
+    const user = await requireApiUser();
+    await assertConnectionAccess(user, body.connectionId);
+    await assertMapAccess(user, body.orgMapId);
+    try {
+      const result = await runSync({ ...body, userId: user.id });
+      return NextResponse.json(result);
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : "Sync failed" },
+        { status: 502 }
+      );
+    }
+  });
 }

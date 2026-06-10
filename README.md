@@ -33,8 +33,11 @@ with Salesforce, HubSpot, and LinkedIn data woven in.
 - **Multi-org network view**: zoom out to see all target orgs and the bridges between them —
   people whose work history spans orgs, cross-org relationships, and your own 1st-degree paths
   into each account.
-- **Team knowledge sharing**: shared workspace, full contribution history, teammates' LinkedIn
-  connections surfaced on person pages.
+- **Team knowledge sharing**: shared workspaces with invite links, full contribution history,
+  teammates' LinkedIn connections surfaced on person pages.
+- **Real accounts & security**: email/password auth (scrypt-hashed) with server-side sessions,
+  workspace-scoped authorization on every API route, CRM tokens encrypted at rest (AES-256-GCM),
+  and global search across people, companies, facts, and research.
 
 ## Quick start
 
@@ -44,10 +47,15 @@ cp .env.example .env        # defaults work for local dev (SQLite)
 npm run db:push             # create the database schema
 npm run db:seed             # demo workspace: Acme + Globex maps
 npm run dev                 # http://localhost:3000
+npm test                    # unit tests (CSV parsing, degree BFS, crypto)
 ```
 
-The seed gives you a demo rep with two prospect maps, an influence graph, sourced facts, and
-LinkedIn connections so every feature is visible immediately.
+Sign in with the seeded demo account — **demo@example.com / demo-password-123** — to explore two
+prospect maps with an influence graph, sourced facts, and LinkedIn connections. Or sign up fresh
+and invite teammates from *Team* (each signup gets its own isolated workspace).
+
+> Production note: set `APP_SECRET` (e.g. `openssl rand -hex 32`) — token encryption requires it
+> and the app refuses to encrypt without it outside dev.
 
 ## Connecting CRMs
 

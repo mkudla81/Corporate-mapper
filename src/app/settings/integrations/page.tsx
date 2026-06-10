@@ -1,11 +1,12 @@
 import { db } from "@/lib/db";
-import { getCurrentWorkspaceId } from "@/lib/auth";
+import { requireUser, currentWorkspaceId } from "@/lib/auth";
 import { ConnectionForm } from "@/components/ConnectionForm";
 
 export const dynamic = "force-dynamic";
 
 export default async function IntegrationsPage() {
-  const workspaceId = await getCurrentWorkspaceId();
+  const user = await requireUser();
+  const workspaceId = currentWorkspaceId(user);
   const connections = await db.crmConnection.findMany({
     where: { workspaceId },
     orderBy: { createdAt: "desc" },

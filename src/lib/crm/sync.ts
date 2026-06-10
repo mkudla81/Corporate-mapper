@@ -1,5 +1,6 @@
 import { db } from "../db";
 import { logActivity } from "../activity";
+import { decryptSecret } from "../secrets";
 import { CrmAdapter, CrmContact, CrmAccount } from "./types";
 import { salesforceAdapter } from "./salesforce";
 import { hubspotAdapter } from "./hubspot";
@@ -16,8 +17,8 @@ export function adapterForConnection(conn: {
   instanceUrl: string | null;
 }): CrmAdapter {
   const auth = {
-    accessToken: conn.accessToken,
-    refreshToken: conn.refreshToken,
+    accessToken: decryptSecret(conn.accessToken),
+    refreshToken: conn.refreshToken ? decryptSecret(conn.refreshToken) : null,
     instanceUrl: conn.instanceUrl,
   };
   if (conn.provider === "salesforce") return salesforceAdapter(auth);

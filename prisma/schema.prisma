@@ -33,19 +33,49 @@ model Workspace {
   members     Membership[]
   orgMaps     OrgMap[]
   connections CrmConnection[]
+  invites     Invite[]
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String
-  createdAt DateTime @default(now())
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  createdAt    DateTime @default(now())
 
   memberships      Membership[]
+  sessions         Session[]
   activities       Activity[]
   artifacts        Artifact[]
   facts            Fact[]
   linkedinContacts LinkedInContact[]
+  invitesCreated   Invite[]
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// Invitation link to join a workspace. Single-use, expiring.
+model Invite {
+  id          String    @id @default(cuid())
+  token       String    @unique
+  workspaceId String
+  email       String? // optional restriction to a specific address
+  role        String    @default("member")
+  createdBy   String
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  inviter   User      @relation(fields: [createdBy], references: [id], onDelete: Cascade)
 }
 
 model Membership {
@@ -250,8 +280,8 @@ model CrmConnection {
   workspaceId  String
   provider     String   // salesforce | hubspot
   label        String
-  // OAuth tokens or private-app token. In production encrypt at rest / use a
-  // secrets manager; kept simple here.
+  // Tokens encrypted at rest with AES-256-GCM (see src/lib/secrets.ts);
+  // stored as "enc:v1:<iv>:<tag>:<ciphertext>".
   accessToken  String
   refreshToken String?
   instanceUrl  String?  // SFDC instance URL

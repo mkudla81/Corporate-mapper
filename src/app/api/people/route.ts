@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { requireApiUser } from "@/lib/auth";
+import { withApiErrors, assertMapAccess, assertCompanyAccess, assertPersonAccess } from "@/lib/authz";
 import { logActivity } from "@/lib/activity";
 
 const createSchema = z.object({
@@ -23,53 +24,58 @@ const createSchema = z.object({
 });
 
 export async function POST(req: NextRequest) {
-  const body = createSchema.parse(await req.json());
-  const user = await getCurrentUser();
+  return withApiErrors(async () => {
+    const body = createSchema.parse(await req.json());
+    const user = await requireApiUser();
+    await assertMapAccess(user, body.orgMapId);
+    if (body.companyId) await assertCompanyAccess(user, body.companyId);
+    if (body.managerId) await assertPersonAccess(user, body.managerId);
 
-  const person = await db.person.create({
-    data: {
-      orgMapId: body.orgMapId,
-      firstName: body.firstName,
-      lastName: body.lastName,
-      email: body.email || null,
-      phone: body.phone,
-      linkedin: body.linkedin,
-      disposition: body.disposition ?? "unknown",
-      notes: body.notes,
-    },
-  });
-
-  if (body.companyId && body.title) {
-    await db.position.create({
-      data: {
-        personId: person.id,
-        companyId: body.companyId,
-        title: body.title,
-        department: body.department,
-        seniority: body.seniority,
-      },
-    });
-  }
-
-  if (body.managerId) {
-    await db.edge.create({
+    const person = await db.person.create({
       data: {
         orgMapId: body.orgMapId,
-        fromId: person.id,
-        toId: body.managerId,
-        type: "REPORTS_TO",
+        firstName: body.firstName,
+        lastName: body.lastName,
+        email: body.email || null,
+        phone: body.phone,
+        linkedin: body.linkedin,
+        disposition: body.disposition ?? "unknown",
+        notes: body.notes,
       },
     });
-  }
 
-  await logActivity({
-    orgMapId: body.orgMapId,
-    userId: user.id,
-    verb: "created",
-    entity: "person",
-    entityId: person.id,
-    summary: `Added ${person.firstName} ${person.lastName}${body.title ? ` (${body.title})` : ""}`,
+    if (body.companyId && body.title) {
+      await db.position.create({
+        data: {
+          personId: person.id,
+          companyId: body.companyId,
+          title: body.title,
+          department: body.department,
+          seniority: body.seniority,
+        },
+      });
+    }
+
+    if (body.managerId) {
+      await db.edge.create({
+        data: {
+          orgMapId: body.orgMapId,
+          fromId: person.id,
+          toId: body.managerId,
+          type: "REPORTS_TO",
+        },
+      });
+    }
+
+    await logActivity({
+      orgMapId: body.orgMapId,
+      userId: user.id,
+      verb: "created",
+      entity: "person",
+      entityId: person.id,
+      summary: `Added ${person.firstName} ${person.lastName}${body.title ? ` (${body.title})` : ""}`,
+    });
+
+    return NextResponse.json(person, { status: 201 });
   });
-
-  return NextResponse.json(person, { status: 201 });
 }

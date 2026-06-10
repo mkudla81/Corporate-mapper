@@ -100,20 +100,45 @@ name), then derives bridges:
 Rendered as a radial React Flow graph with a "You" node in the center; clicking an org opens its
 map.
 
+## Auth & multi-tenancy
+
+- **Accounts**: email/password with scrypt hashing (`src/lib/password.ts`, Node crypto — no
+  native deps). Login/signup/logout under `/api/auth/*`.
+- **Sessions**: random 256-bit tokens in a `Session` table, delivered via an httpOnly
+  `cm_session` cookie (30-day expiry, `secure` in production). `src/middleware.ts` redirects
+  anonymous page visits to `/login`; real validation happens server-side in
+  `requireUser()` (pages) and `requireApiUser()` (API → 401).
+- **Authorization**: every API route resolves the caller's workspaces and asserts the target
+  entity belongs to one of them (`src/lib/authz.ts`: `assertMapAccess`, `assertPersonAccess`,
+  …) before reading or writing. File downloads check the owning workspace too. Routes wrap in
+  `withApiErrors()` for uniform 401/403/400/500 mapping.
+- **Workspaces & invites**: signup creates a personal workspace; invite links
+  (`/api/team/invites` → `/invite/[token]`) let teammates join an existing one, optionally
+  pinned to an email and expiring after 14 days. All research, maps, and CRM connections are
+  workspace-shared.
+- **Secrets at rest**: CRM tokens are AES-256-GCM encrypted (`src/lib/secrets.ts`) under a key
+  derived from `APP_SECRET` (mandatory in production); legacy plaintext rows are tolerated on
+  read so encryption can be introduced without a migration.
+
+## Testing
+
+`npm test` (vitest) covers the pure cores: LinkedIn CSV parsing (quotes, preambles, malformed
+files), degree-of-connection BFS (shortest paths, caps, invalid seeds), shared-employer hop
+building, password hashing, and secret encryption round-trips.
+
 ## Production hardening checklist
 
-This is a working MVP with deliberate simplifications. Before real deployment:
+Remaining simplifications to address before real deployment:
 
-- **Auth**: `src/lib/auth.ts` is a single-demo-user stub; swap in NextAuth/Clerk and derive the
-  workspace from the session. Everything downstream depends only on `getCurrentUser` /
-  `getCurrentWorkspaceId`.
-- **Authorization**: add per-route workspace-membership checks (queries already scope by
-  workspace; enforce it on the mutation routes too).
-- **Tokens**: encrypt `CrmConnection` tokens at rest; implement refresh-token rotation
-  (refresh endpoints exist on both providers; adapters surface 401s).
 - **Database**: switch the datasource provider to `postgresql`; the schema avoids
   SQLite-specific features.
 - **Storage**: replace local-disk `storage.ts` with S3/GCS (two-function contract).
+- **Token refresh**: implement refresh-token rotation for SFDC/HubSpot (refresh endpoints
+  exist on both providers; adapters surface 401s).
 - **Sync at scale**: move `runSync` to a background job (cron / queue), add webhook receivers
   for HubSpot subscriptions and SFDC CDC for near-real-time hints.
-- **Search**: add a search index (Postgres FTS is fine) over people/facts/artifacts.
+- **Search**: swap LIKE-based search for Postgres FTS as data grows.
+- **Rate limiting / CSRF**: add a rate limiter on `/api/auth/*` and CSRF tokens if the app
+  ever serves cross-origin embeds (cookies are SameSite=Lax, which covers the basics).
+- **Roles**: membership roles (owner/admin/member/viewer) exist but aren't yet enforced as
+  distinct permission tiers.

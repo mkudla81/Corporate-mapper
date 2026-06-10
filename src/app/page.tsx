@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { getCurrentWorkspaceId } from "@/lib/auth";
+import { requireUser, currentWorkspaceId } from "@/lib/auth";
 import { NewMapForm } from "@/components/NewMapForm";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const workspaceId = await getCurrentWorkspaceId();
+  const user = await requireUser();
+  const workspaceId = currentWorkspaceId(user);
   const maps = await db.orgMap.findMany({
     where: { workspaceId },
     orderBy: { updatedAt: "desc" },

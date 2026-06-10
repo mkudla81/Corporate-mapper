@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { requireUser, workspaceIds } from "@/lib/auth";
 import { computeDegrees } from "@/lib/network";
 import { FactForm } from "@/components/FactForm";
 import { ArtifactForm } from "@/components/ArtifactForm";
@@ -19,6 +19,7 @@ const CONFIDENCE_CHIP: Record<string, string> = {
 };
 
 export default async function PersonPage({ params }: { params: { id: string } }) {
+  const user = await requireUser();
   const person = await db.person.findUnique({
     where: { id: params.id },
     include: {
@@ -32,9 +33,8 @@ export default async function PersonPage({ params }: { params: { id: string } })
       linkedinContacts: { include: { user: { select: { name: true } } } },
     },
   });
-  if (!person) notFound();
+  if (!person || !workspaceIds(user).includes(person.orgMap.workspaceId)) notFound();
 
-  const user = await getCurrentUser();
   const degrees = await computeDegrees(user.id, person.orgMap.workspaceId);
   const degree = degrees.get(person.id);
   const myContact = person.linkedinContacts.find((c) => c.userId === user.id);

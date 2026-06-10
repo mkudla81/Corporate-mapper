@@ -1,6 +1,10 @@
 import { PrismaClient } from "@prisma/client";
+import { hashPassword } from "../src/lib/password";
 
 const db = new PrismaClient();
+
+const DEMO_EMAIL = "demo@example.com";
+const DEMO_PASSWORD = "demo-password-123";
 
 // Demo workspace with a realistic prospect map so the app is explorable
 // immediately after `npm run db:seed`.
@@ -12,7 +16,7 @@ async function main() {
   }
 
   const user = await db.user.create({
-    data: { email: "demo@example.com", name: "Demo Rep" },
+    data: { email: DEMO_EMAIL, name: "Demo Rep", passwordHash: hashPassword(DEMO_PASSWORD) },
   });
   const workspace = await db.workspace.create({ data: { name: "Demo Sales Team" } });
   await db.membership.create({
@@ -244,7 +248,8 @@ async function main() {
     },
   });
 
-  console.log("Seeded demo workspace, user (demo@example.com), Acme + Globex maps.");
+  console.log("Seeded demo workspace with Acme + Globex maps.");
+  console.log(`Sign in with  ${DEMO_EMAIL} / ${DEMO_PASSWORD}`);
 }
 
 main()

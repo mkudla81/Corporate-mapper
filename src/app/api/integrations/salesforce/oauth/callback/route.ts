@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { getCurrentWorkspaceId } from "@/lib/auth";
+import { getCurrentUser, currentWorkspaceId } from "@/lib/auth";
+import { encryptSecret } from "@/lib/secrets";
 import { salesforceExchangeCode } from "@/lib/crm/salesforce";
 
 export async function GET(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user) return NextResponse.redirect(new URL("/login", process.env.APP_BASE_URL));
+
   const code = req.nextUrl.searchParams.get("code");
   const state = req.nextUrl.searchParams.get("state");
   const expected = req.cookies.get("sfdc_oauth_state")?.value;
@@ -12,14 +16,13 @@ export async function GET(req: NextRequest) {
   }
 
   const tokens = await salesforceExchangeCode(code);
-  const workspaceId = await getCurrentWorkspaceId();
   await db.crmConnection.create({
     data: {
-      workspaceId,
+      workspaceId: currentWorkspaceId(user),
       provider: "salesforce",
       label: "Salesforce",
-      accessToken: tokens.access_token,
-      refreshToken: tokens.refresh_token,
+      accessToken: encryptSecret(tokens.access_token),
+      refreshToken: tokens.refresh_token ? encryptSecret(tokens.refresh_token) : undefined,
       instanceUrl: tokens.instance_url,
     },
   });

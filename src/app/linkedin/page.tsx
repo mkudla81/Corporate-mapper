@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { getCurrentUser } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { LinkedInImportForm } from "@/components/LinkedInImportForm";
 
 export const dynamic = "force-dynamic";
 
 export default async function LinkedInPage() {
-  const user = await getCurrentUser();
+  const user = await requireUser();
   const contacts = await db.linkedInContact.findMany({
     where: { userId: user.id },
     orderBy: [{ personId: "desc" }, { lastName: "asc" }],

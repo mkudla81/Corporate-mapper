@@ -11,6 +11,62 @@ import { db } from "./db";
 // mapped relationship Edge (any type) or shared employment (two people with
 // positions — current or former — at the same company).
 
+// Pure core, exported for unit testing: BFS over an undirected hop list.
+export function degreesFromGraph(
+  hops: [string, string][],
+  seeds: string[],
+  validIds: Set<string>,
+  maxDegree = 5
+): Map<string, number> {
+  const adjacency = new Map<string, Set<string>>();
+  const link = (a: string, b: string) => {
+    if (!adjacency.has(a)) adjacency.set(a, new Set());
+    if (!adjacency.has(b)) adjacency.set(b, new Set());
+    adjacency.get(a)!.add(b);
+    adjacency.get(b)!.add(a);
+  };
+  for (const [a, b] of hops) link(a, b);
+
+  const degrees = new Map<string, number>();
+  let frontier = Array.from(new Set(seeds)).filter((id) => validIds.has(id));
+  for (const id of frontier) degrees.set(id, 1);
+  let depth = 1;
+  while (frontier.length > 0 && depth < maxDegree) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      for (const neighbor of Array.from(adjacency.get(id) ?? [])) {
+        if (!degrees.has(neighbor)) {
+          degrees.set(neighbor, depth + 1);
+          next.push(neighbor);
+        }
+      }
+    }
+    frontier = next;
+    depth++;
+  }
+  return degrees;
+}
+
+// Build the hop list for a workspace: relationship edges + shared employment.
+export function buildHops(
+  people: { id: string; positions: { companyId: string }[] }[],
+  edges: { fromId: string; toId: string }[]
+): [string, string][] {
+  const hops: [string, string][] = edges.map((e) => [e.fromId, e.toId]);
+  const byCompany = new Map<string, string[]>();
+  for (const p of people) {
+    for (const pos of p.positions) {
+      byCompany.set(pos.companyId, [...(byCompany.get(pos.companyId) ?? []), p.id]);
+    }
+  }
+  for (const ids of Array.from(byCompany.values())) {
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) hops.push([ids[i], ids[j]]);
+    }
+  }
+  return hops;
+}
+
 export async function computeDegrees(
   userId: string,
   workspaceId: string
@@ -28,50 +84,11 @@ export async function computeDegrees(
     select: { personId: true },
   });
 
-  const adjacency = new Map<string, Set<string>>();
-  const link = (a: string, b: string) => {
-    if (!adjacency.has(a)) adjacency.set(a, new Set());
-    if (!adjacency.has(b)) adjacency.set(b, new Set());
-    adjacency.get(a)!.add(b);
-    adjacency.get(b)!.add(a);
-  };
-
-  for (const e of edges) link(e.fromId, e.toId);
-
-  // Shared-employer hops: index people by company.
-  const byCompany = new Map<string, string[]>();
-  for (const p of people) {
-    for (const pos of p.positions) {
-      byCompany.set(pos.companyId, [...(byCompany.get(pos.companyId) ?? []), p.id]);
-    }
-  }
-  for (const ids of Array.from(byCompany.values())) {
-    for (let i = 0; i < ids.length; i++) {
-      for (let j = i + 1; j < ids.length; j++) link(ids[i], ids[j]);
-    }
-  }
-
-  // BFS from the 1st-degree set.
-  const degrees = new Map<string, number>();
-  let frontier = Array.from(new Set(firstDegree.map((c) => c.personId!))).filter((id) =>
-    people.some((p) => p.id === id)
+  return degreesFromGraph(
+    buildHops(people, edges),
+    firstDegree.map((c) => c.personId!),
+    new Set(people.map((p) => p.id))
   );
-  for (const id of frontier) degrees.set(id, 1);
-  let depth = 1;
-  while (frontier.length > 0 && depth < 6) {
-    const next: string[] = [];
-    for (const id of frontier) {
-      for (const neighbor of Array.from(adjacency.get(id) ?? [])) {
-        if (!degrees.has(neighbor)) {
-          degrees.set(neighbor, depth + 1);
-          next.push(neighbor);
-        }
-      }
-    }
-    frontier = next;
-    depth++;
-  }
-  return degrees;
 }
 
 // ---------------------------------------------------------------------------
