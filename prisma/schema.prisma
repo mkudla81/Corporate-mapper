@@ -15,9 +15,7 @@ generator client {
 }
 
 datasource db {
-  // SQLite for local dev. Production: switch provider to "postgresql" —
-  // the schema intentionally avoids SQLite-only features.
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 

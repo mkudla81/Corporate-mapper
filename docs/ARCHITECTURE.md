@@ -24,7 +24,7 @@
 │  storage.ts   file storage (local disk; swap for S3)      │
 │  activity.ts  contribution log                            │
 ├────────────────────────────────────────────────────────────┤
-│ Prisma → SQLite (dev) / PostgreSQL (prod)                  │
+│ Prisma → PostgreSQL (migrations in prisma/migrations)      │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -126,18 +126,27 @@ map.
 files), degree-of-connection BFS (shortest paths, caps, invalid seeds), shared-employer hop
 building, password hashing, and secret encryption round-trips.
 
-## Production hardening checklist
+## Deployment
 
-Remaining simplifications to address before real deployment:
+- **Database**: PostgreSQL via Prisma migrations (`prisma/migrations`, applied with
+  `prisma migrate deploy` — the Docker entrypoint does this on every boot).
+- **Image**: multi-stage `Dockerfile` producing a Next.js standalone bundle (~no node_modules
+  at runtime except Prisma); `docker-compose.yml` runs app + Postgres with volumes for data
+  and uploads. The TS seed is esbuild-bundled to plain JS so `SEED_DEMO=true` works without
+  dev tooling in the image.
+- **Storage**: `storage.ts` picks a driver by env — S3-compatible (`S3_BUCKET`, optional
+  `S3_ENDPOINT` for R2/MinIO) for serverless, local disk otherwise.
+- **Probes**: `GET /api/health` checks DB connectivity (200/503).
+- **CI**: GitHub Actions runs `npm test` + `next build` on every push/PR.
 
-- **Database**: switch the datasource provider to `postgresql`; the schema avoids
-  SQLite-specific features.
-- **Storage**: replace local-disk `storage.ts` with S3/GCS (two-function contract).
+## Remaining hardening
+
 - **Token refresh**: implement refresh-token rotation for SFDC/HubSpot (refresh endpoints
   exist on both providers; adapters surface 401s).
 - **Sync at scale**: move `runSync` to a background job (cron / queue), add webhook receivers
   for HubSpot subscriptions and SFDC CDC for near-real-time hints.
 - **Search**: swap LIKE-based search for Postgres FTS as data grows.
+- **Observability**: structured logging + error tracking (Sentry) before a broad rollout.
 - **Rate limiting / CSRF**: add a rate limiter on `/api/auth/*` and CSRF tokens if the app
   ever serves cross-origin embeds (cookies are SameSite=Lax, which covers the basics).
 - **Roles**: membership roles (owner/admin/member/viewer) exist but aren't yet enforced as

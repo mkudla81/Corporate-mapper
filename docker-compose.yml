@@ -1,0 +1,42 @@
+# One-command deploy for a single server / local trial:
+#   APP_SECRET=$(openssl rand -hex 32) docker compose up -d --build
+# App on http://localhost:3000 — sign up, or set SEED_DEMO=true for demo data.
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-in-prod}
+      POSTGRES_DB: corporate_mapper
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cm -d corporate_mapper"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://cm:${POSTGRES_PASSWORD:-change-me-in-prod}@db:5432/corporate_mapper
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      APP_SECRET: ${APP_SECRET:?set APP_SECRET, e.g. openssl rand -hex 32}
+      SEED_DEMO: ${SEED_DEMO:-false}
+      # Optional CRM OAuth credentials:
+      SFDC_CLIENT_ID: ${SFDC_CLIENT_ID:-}
+      SFDC_CLIENT_SECRET: ${SFDC_CLIENT_SECRET:-}
+      HUBSPOT_CLIENT_ID: ${HUBSPOT_CLIENT_ID:-}
+      HUBSPOT_CLIENT_SECRET: ${HUBSPOT_CLIENT_SECRET:-}
+    ports:
+      - "3000:3000"
+    volumes:
+      - storage:/app/storage
+
+volumes:
+  pgdata:
+  storage:

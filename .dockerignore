@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+storage
+prisma/*.db
+prisma/*.db-journal
+prisma/seed.js
+.env
+.env.*
+tests
+docs
+*.md

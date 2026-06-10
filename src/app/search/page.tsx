@@ -5,7 +5,7 @@ import { requireUser, currentWorkspaceId } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 // Workspace-wide search across people, companies, facts and research notes.
-// SQLite LIKE is case-insensitive for ASCII; swap to Postgres FTS at scale.
+// ILIKE-based; swap to Postgres FTS at scale.
 export default async function SearchPage({ searchParams }: { searchParams: { q?: string } }) {
   const user = await requireUser();
   const workspaceId = currentWorkspaceId(user);
@@ -26,24 +26,24 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
       where: {
         ...inWorkspace,
         OR: [
-          { firstName: { contains: q } },
-          { lastName: { contains: q } },
-          { email: { contains: q } },
-          { notes: { contains: q } },
+          { firstName: { contains: q, mode: "insensitive" as const } },
+          { lastName: { contains: q, mode: "insensitive" as const } },
+          { email: { contains: q, mode: "insensitive" as const } },
+          { notes: { contains: q, mode: "insensitive" as const } },
         ],
       },
       include: { orgMap: true, positions: { where: { current: true }, include: { company: true } } },
       take: 20,
     }),
     db.company.findMany({
-      where: { ...inWorkspace, OR: [{ name: { contains: q } }, { domain: { contains: q } }] },
+      where: { ...inWorkspace, OR: [{ name: { contains: q, mode: "insensitive" as const } }, { domain: { contains: q, mode: "insensitive" as const } }] },
       include: { orgMap: true },
       take: 20,
     }),
     db.fact.findMany({
       where: {
         AND: [
-          { OR: [{ label: { contains: q } }, { value: { contains: q } }] },
+          { OR: [{ label: { contains: q, mode: "insensitive" as const } }, { value: { contains: q, mode: "insensitive" as const } }] },
           {
             OR: [
               { person: { orgMap: { workspaceId } } },
@@ -58,7 +58,7 @@ export default async function SearchPage({ searchParams }: { searchParams: { q?:
     db.artifact.findMany({
       where: {
         AND: [
-          { OR: [{ title: { contains: q } }, { body: { contains: q } }] },
+          { OR: [{ title: { contains: q, mode: "insensitive" as const } }, { body: { contains: q, mode: "insensitive" as const } }] },
           {
             OR: [
               { person: { orgMap: { workspaceId } } },
